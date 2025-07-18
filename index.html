@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Calorie Tracker</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: linear-gradient(to bottom right, #fceabb, #f8b500);
+    }
+    video, img {
+      width: 100%;
+      max-width: 400px;
+      border-radius: 12px;
+      margin-top: 10px;
+    }
+    #results {
+      margin-top: 20px;
+      font-size: 18px;
+    }
+    button {
+      padding: 12px 20px;
+      background-color: #ff7f50;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      margin: 10px 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #ff6333;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    label.upload-btn {
+      background-color: #4caf50;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 16px;
+      cursor: pointer;
+      margin: 10px 5px;
+      display: inline-block;
+    }
+    label.upload-btn:hover {
+      background-color: #43a047;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🍽️ AI Food Calorie Tracker</h1>
+
+  <video id="camera" autoplay playsinline></video><br>
+  <button onclick="analyze()">Analyze Camera</button>
+  <button onclick="switchCamera()">Switch Camera</button>
+  <label class="upload-btn">
+    📤 Upload Photo
+    <input type="file" accept="image/*" onchange="uploadImage(event)">
+  </label>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+  <img id="preview" style="display:none;" />
+
+  <div id="results">Initializing camera...</div>
+
+  <script>
+    let currentStream;
+    let usingFrontCamera = false;
+    let foodData = {};
+
+    async function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+
+      try {
+        const constraints = {
+          video: { facingMode: usingFrontCamera ? "user" : "environment" }
+        };
+        currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        document.getElementById("camera").srcObject = currentStream;
+        document.getElementById("results").innerText = "Camera ready. Point at food!";
+      } catch (err) {
+        document.getElementById("results").innerText = "❌ Camera error: " + err.message;
+      }
+    }
+
+    function switchCamera() {
+      usingFrontCamera = !usingFrontCamera;
+      startCamera();
+    }
+
+    function uploadImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = document.getElementById("preview");
+        img.src = e.target.result;
+        img.onload = () => {
+          processImage(img);
+        };
+        img.style.display = "block";
+        document.getElementById("camera").style.display = "none";
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function analyze() {
+      const video = document.getElementById('camera');
+      if (!video.srcObject) {
+        document.getElementById("results").innerText = "❌ Camera not ready.";
+        return;
+      }
+
+      const canvas = document.getElementById("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      processImageData(imageData);
+    }
+
+    function processImage(imgElement) {
+      const canvas = document.getElementById("canvas");
+      canvas.width = imgElement.width;
+      canvas.height = imgElement.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(imgElement, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      processImageData(imageData);
+    }
+
+    function processImageData(imageData) {
+      document.getElementById("results").innerText = "🔍 Analyzing image...";
+
+      setTimeout(() => {
+        const detected = analyzeImageColors(imageData);
+        const name = detected.name.toLowerCase();
+        const foodInfo = foodData[name];
+
+        if (foodInfo) {
+          document.getElementById("results").innerHTML = `
+            <h3>✅ Detected: ${detected.name}</h3>
+            <p><strong>Calories:</strong> ${foodInfo.cal} kcal</p>
+            <p><strong>Protein:</strong> ${foodInfo.protein}g</p>
+            <p><strong>Carbs:</strong> ${foodInfo.carbs}g</p>
+            <p><strong>Fat:</strong> ${foodInfo.fat}g</p>
+            <p><em>${detected.reason}</em></p>
+          `;
+        } else {
+          document.getElementById("results").innerHTML = `
+            ⚠️ <strong>${detected.name}</strong> not in database.<br>
+            <em>${detected.reason}</em>
+          `;
+        }
+      }, 1200);
+    }
+
+    function analyzeImageColors(imageData) {
+      const data = imageData.data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < data.length; i += 40) {
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
+        count++;
+      }
+      r /= count; g /= count; b /= count;
+
+      if (r > 150 && g < 100 && b < 100) return { name: "Apple", reason: "Dominant red" };
+      if (r > 200 && g > 150 && b < 100) return { name: "Orange", reason: "Orange color detected" };
+      if (g > 150 && r < 100) return { name: "Broccoli", reason: "Strong green tone" };
+      if (r > 180 && g > 100 && b < 80) return { name: "Pizza", reason: "Warm tones detected" };
+      if (r < 100 && g < 100 && b < 100) return { name: "Chicken", reason: "Dark/brownish tone" };
+      if (r > 200 && g > 180 && b < 120) return { name: "Banana", reason: "Yellowish tones" };
+
+      return { name: "Unknown", reason: "Mixed/unknown colors" };
+    }
+
+    async function loadFoodDatabase() {
+      try {
+        const res = await fetch('./food/food.json');
+        foodData = await res.json();
+        console.log("✅ Food database loaded");
+      } catch (err) {
+        document.getElementById("results").innerText = "❌ Failed to load food database.";
+        console.error("Food DB error:", err);
+      }
+    }
+
+    window.addEventListener('load', async () => {
+      await loadFoodDatabase();
+      await startCamera();
+    });
+  </script>
+
+</body>
+</html>
